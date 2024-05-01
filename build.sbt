@@ -8,3 +8,14 @@ lazy val parser = (project in file("parser"))
       "org.scalameta" %% "munit" % "0.7.29" % Test
     )
   )
+
+
+lazy val doobie = (project in file("doobie"))
+  .dependsOn(parser)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.tpolecat" %% "doobie-postgres" % "1.0.0-RC4",
+      "com.softwaremill.magnolia1_3" %% "magnolia" % "1.3.5",
+      "org.scalameta" %% "munit" % "0.7.29" % Test
+    )
+  )
