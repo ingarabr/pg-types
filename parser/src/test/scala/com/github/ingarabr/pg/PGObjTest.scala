@@ -127,8 +127,8 @@ class PGObjTest extends FunSuite {
       .filterNot(tc =>
         List(
           4, // to many quotes in array. one element
-          11 // to many quotes in array. nested array
-//          12 // to many quotes in array. nested array
+          11, // to many quotes in array. nested array
+          12 // to many quotes in array. nested array
         ).contains(tc.id)
       )
       .foreach { tc =>

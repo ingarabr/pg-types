@@ -52,6 +52,10 @@ object PGObj {
     def arr(level: Int, p: P0[PGObj]): P[PGObj] =
       escStartToken(level, arrStart) *> rep0sep0Empty(p, sep).map(Arr.apply) <* escEndToken(level, arrEnd)
 
+    def arrNoEsc(p: P0[PGObj]): P[PGObj] =
+      arrStart *> rep0sep0Empty(p, sep).map(Arr.apply) <* arrEnd
+
+
     def obj(level: Int, p: P0[PGObj]): P[PGObj] =
       escStartToken(level, objStart) *> rep0sep0Empty(p, sep).map(v => Row(v, None)) <* escEndToken(level, objEnd)
 
@@ -62,14 +66,16 @@ object PGObj {
 
     val parser: P[PGObj] = {
       def levelParser(level: Int): P[PGObj] = {
-        val rec = P.defer(levelParser(level + 1))
+        val rec = P.defer(levelParser(level + 1)).withContext(s"level-${level + 1}")
         val escCount = Math.pow(2, level).toInt
         val escRootCount = if (level == 0) 0 else Math.pow(2, level - 1).toInt
-        val arrayP = arr(escRootCount, rec | arrBase(escCount)).withContext(s"array($level)")
+        val arrayP =
+          arr(escRootCount, rec | arrBase(escCount)).withContext(s"array($level)") |
+            arrNoEsc(rec | arrBase(escRootCount.max(1))).withContext(s"array-no-esc($level)")
         val objectP = obj(escRootCount, rec | objBase(escCount)).withContext(s"object($level)")
         arrayP | objectP
       }
-      levelParser(0)
+      levelParser(0).withContext("level-0")
     }
   }
 
@@ -77,7 +83,7 @@ object PGObj {
 
     def renderString: String = {
       def innerRender(v: PGObj, esc: Int, parentIsArray: Boolean): String = {
-        val wq = "\"" * (esc)
+        val wq = "\"" * esc
         val nextEsc = (esc * 2).max(1)
         def wrap(a: String, around: String): String = a ++ around ++ a
         val quoteWhenPresent = List(",", "(", ")", "{", "}", "\"", "\\", " ")
@@ -89,8 +95,10 @@ object PGObj {
             else if (quoteWhenPresent.exists(value.contains(_)))
               wrap(wq, value.replace("\"", wq * 2))
             else value
-          case Arr(values) => wrap(wq, values.map(v => innerRender(v, nextEsc, true)).mkString("{", ",", "}"))
-          case Null        => if (parentIsArray) "NULL" else ""
+          case Arr(values) =>
+            if (parentIsArray) values.map(v => innerRender(v, esc, true)).mkString("{", ",", "}")
+            else wrap(wq, values.map(v => innerRender(v, nextEsc, true)).mkString("{", ",", "}"))
+          case Null => if (parentIsArray) "NULL" else ""
         }
       }
       innerRender(value, 0, false)

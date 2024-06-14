@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import cats.Show
 import cats.data.NonEmptyList
 import com.github.ingarabr.pg
+import com.github.ingarabr.pg.PGObj.{Arr, parse}
 import doobie.Put
 import doobie.util.Get
 import doobie.util.meta.Meta
@@ -33,10 +34,12 @@ trait PGObjectStringConverter[A] { self =>
       .tiemap[A](pgObj =>
         val res = PGObj
           .parse(pgObj.getValue)
+          .map {
+            case PGObj.Row(values, foo) => PGObj.Row(values, foo.orElse(Some(pgObj.getType)))
+            case o                      => o
+          }
           .fold(err => Left(err.toString()), PGObjectStringConverter[A].read)
-
         pgObj.getValue
-        println("TADA: " ++ res.toString)
         res
       )(a => {
         val o = new PGobject()
@@ -89,7 +92,10 @@ object PGObjectStringConverter extends ProductDerivation[PGObjectStringConverter
         obj match {
           case PGObj.Row(values, _) =>
             val vArr = values.toArray
-            ctx.constructEither(param => param.typeclass.read(vArr(param.index))).leftMap(_.mkString(", "))
+            if (vArr.length == ctx.parameters.toList.length)
+              ctx.constructEither(param => param.typeclass.read(vArr(param.index))).leftMap(_.mkString(", "))
+            else
+              Left(s"row: ${vArr.mkString(", ")} => ${ctx.parameters.toList.mkString(", ")}")
           case _ => Left("value must be an object")
         }
       }
@@ -98,7 +104,7 @@ object PGObjectStringConverter extends ProductDerivation[PGObjectStringConverter
   given [A](using PGObjectStringConverter[A]): PGObjectStringConverter[Option[A]] with {
     def read(obj: PGObj): Either[String, Option[A]] = obj match {
       case PGObj.Null => Right(None)
-      case v                   => PGObjectStringConverter[A].read(v).map(Some(_))
+      case v          => PGObjectStringConverter[A].read(v).map(Some(_))
     }
 
     def write(a: Option[A]): PGObj =
@@ -124,7 +130,9 @@ object PGObjectStringConverter extends ProductDerivation[PGObjectStringConverter
   given PGObjectStringConverter[String] with {
     def read(obj: PGObj): Either[String, String] = obj match {
       case PGObj.Str(value) => Right(value)
-      case _                         => Left(s"unexpected type")
+      case a: PGObj.Arr     => Right(a.renderString) // todo: we might change the string value during parsing
+      case r: PGObj.Row     => Right(r.renderString) // todo: we might change the string value during parsing
+      case t                => Left(s"unexpected string found ${t.getClass.getSimpleName}")
     }
     def write(a: String): PGObj = PGObj.Str(a)
   }
